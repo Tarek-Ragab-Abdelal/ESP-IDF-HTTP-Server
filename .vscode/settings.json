@@ -1,0 +1,12 @@
+{
+    "workbench.colorCustomizations": {
+        "activityBar.background": "#481B4B",
+        "titleBar.activeBackground": "#652669",
+        "titleBar.activeForeground": "#FCF9FD"
+    },
+    "cmake.configureOnOpen": false,
+    "files.associations": {
+        "esp_http_server.h": "c",
+        "esp_netif.h": "c"
+    }
+}
