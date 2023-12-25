@@ -19,19 +19,19 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "esp_system.h"
-#include "esp_log.h"
+#include "esp_netif.h"
 #include "lwip/err.h"
 #include "lwip/sys.h"
+#include "lwip/ip4_addr.h"
 #include "esp_http_server.h"
-#include "esp_netif.h"
 #include "cJSON.h"
 
-#define EXAMPLE_ESP_WIFI_SSID "ESP32-Trial"
-#define EXAMPLE_ESP_WIFI_PASS "12345678"
-#define EXAMPLE_ESP_WIFI_CHANNEL 6
-#define EXAMPLE_MAX_STA_CONN 4
+#define ESP_WIFI_SSID "ESP32-Trial"
+#define ESP_WIFI_PASS "12345678"
+#define ESP_WIFI_CHANNEL 6
+#define MAX_STA_CONN 4
 
-static const char *TAG = "esp32_server";
+static const char *TAG = "MAIN";
 
 typedef struct
 {
@@ -200,73 +200,6 @@ httpd_uri_t home_uri = {
     .user_ctx = NULL};
 
 /**
- * @brief WiFi event handler function.
- *
- * This function handles WiFi events such as station connected and disconnected.
- *
- * @param arg User data pointer (not used).
- * @param event_base Event base.
- * @param event_id Event ID.
- * @param event_data Event data.
- */
-static void wifi_event_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
-    if (event_id == WIFI_EVENT_AP_STACONNECTED)
-    {
-        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
-        // ESP_LOGI(TAG, "station " MACSTR " join, AID=%d", MAC2STR(event->mac), event->aid);
-    }
-    else if (event_id == WIFI_EVENT_AP_STADISCONNECTED)
-    {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-        // ESP_LOGI(TAG, "station " MACSTR " leave, AID=%d",MAC2STR(event->mac), event->aid);
-    }
-}
-
-/**
- * @brief Initialize WiFi in soft AP mode.
- *
- * This function initializes WiFi in soft AP mode with the specified configuration.
- */
-void wifi_init_softap(void)
-{
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_ap();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        NULL));
-
-    wifi_config_t wifi_config = {
-        .ap = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .ssid_len = strlen(EXAMPLE_ESP_WIFI_SSID),
-            .channel = EXAMPLE_ESP_WIFI_CHANNEL,
-            .password = EXAMPLE_ESP_WIFI_PASS,
-            .max_connection = EXAMPLE_MAX_STA_CONN,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK},
-    };
-    if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0)
-    {
-        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-    }
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
-             EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS, EXAMPLE_ESP_WIFI_CHANNEL);
-}
-
-/**
  * @brief Start the HTTP server.
  *
  * This function starts the HTTP server and registers URI handlers.
@@ -282,6 +215,114 @@ void start_http_server()
         httpd_register_uri_handler(server, &post_uri);
         httpd_register_uri_handler(server, &home_uri);
     }
+}
+
+/**
+ * @brief WiFi event handler function.
+ *
+ * This function handles WiFi events such as station connected and disconnected.
+ *
+ * @param arg User data pointer (not used).
+ * @param event_base Event base.
+ * @param event_id Event ID.
+ * @param event_data Event data.
+ */
+static void wifi_event_handler(void *arg, esp_event_base_t event_base,
+                               int32_t event_id, void *event_data)
+{
+    if (event_id == WIFI_EVENT_AP_STACONNECTED)
+    {
+        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
+        uint8_t *a = event->mac;
+        ESP_LOGI("WiFi_Event", "station %02x:%02x:%02x:%02x:%02x:%02x join, AID=%d", a[0], a[1], a[2], a[3], a[4], a[5], event->aid);
+    }
+    else if (event_id == WIFI_EVENT_AP_STADISCONNECTED)
+    {
+        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
+        uint8_t *a = event->mac;
+        ESP_LOGI("WiFi_Event", "station %02x:%02x:%02x:%02x:%02x:%02x leave, AID=%d", a[0], a[1], a[2], a[3], a[4], a[5], event->aid);
+    }
+}
+
+/**
+ * @brief STA event handler function
+ *
+ * This function handles connection and disconnection events of Station to the ESP32
+ *
+ * @param arg User data pointer (not used).
+ * @param event_base Event base.
+ * @param event_id Event ID.
+ * @param event_data Event data.
+ */
+static void connect_handler(void *arg, esp_event_base_t event_base,
+                            int32_t event_id, void *event_data)
+{
+    ESP_LOGI("CONNECT", "Entered Connect Handler");
+    start_http_server();
+}
+
+/**
+ * @brief Initialize WiFi in soft AP mode.
+ *
+ * This function initializes WiFi in soft AP mode with the specified IP settings.
+ */
+void wifi_init_softap(void)
+{
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    assert(ap_netif);
+
+    ESP_ERROR_CHECK(esp_wifi_stop());
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL));
+
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                        ESP_EVENT_ANY_ID,
+                                                        &wifi_event_handler,
+                                                        NULL,
+                                                        NULL));
+
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT,
+                                               IP_EVENT_AP_STAIPASSIGNED,
+                                               &connect_handler,
+                                               NULL));
+
+    wifi_config_t wifi_config = {
+        .ap = {
+            .ssid = ESP_WIFI_SSID,
+            .ssid_len = strlen(ESP_WIFI_SSID),
+            .channel = ESP_WIFI_CHANNEL,
+            .password = ESP_WIFI_PASS,
+            .max_connection = MAX_STA_CONN,
+            .authmode = WIFI_AUTH_WPA_WPA2_PSK},
+    };
+    if (strlen(ESP_WIFI_PASS) == 0)
+    {
+        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+
+    ESP_ERROR_CHECK(esp_netif_dhcps_stop(ap_netif));
+
+    esp_netif_ip_info_t ip_info;
+
+    IP4_ADDR(&ip_info.ip, 192, 168, 0, 1);
+    IP4_ADDR(&ip_info.gw, 192, 168, 0, 1);
+    IP4_ADDR(&ip_info.netmask, 255, 255, 255, 0);
+
+    ESP_ERROR_CHECK(esp_netif_set_ip_info(ap_netif, &ip_info));
+    esp_netif_dhcps_start(ap_netif);
+
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(TAG, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
+             ESP_WIFI_SSID, ESP_WIFI_PASS, ESP_WIFI_CHANNEL);
 }
 
 /**
@@ -301,7 +342,6 @@ void app_main()
 
     ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
     wifi_init_softap();
-    start_http_server();
 
     while (1)
     {
